@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Asistencia de Estudiantes</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Manifest -->
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#24496e" />
+
+    <!-- SheetJS (solo para exportar .xlsx locales) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin></script>
+
+    <style>
+      :root{
+        --azul:#24496e;
+        --crema:#f3efdc;
+        --violeta:#6c467e;
+        --salmon:#da6863;
+      }
+      body{ background:var(--crema); }
+    </style>
+  </head>
+  <body class="min-h-dvh text-slate-900">
+    <div id="root"></div>
+
+    <!-- React 18 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+
+    <script>
+      // Tu configuración de Firebase
+      const firebaseConfig = {
+        apiKey: "AIzaSyCzgl9U2DLY16pXxvvvcJNeTshCgqfE6Y4",
+        authDomain: "pruebaasistenciapro.firebaseapp.com",
+        projectId: "pruebaasistenciapro",
+        storageBucket: "pruebaasistenciapro.firebasestorage.app",
+        messagingSenderId: "529599664915",
+        appId: "1:529599664915:web:95d12af5b78766901b40e6",
+        measurementId: "G-R0RNZKMLMJ"
+      };
+
+      // Inicializar Firebase
+      firebase.initializeApp(firebaseConfig);
+    </script>
+
+    
+    <script>
+      // Config de autenticación (editable)
+      window.USERS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQOIYDnMQQtRVcPNPFnfmvVWiqFFqXjslfLjwq0totnyRFWLmQBfoiHS7rFqx2fnaqQMd7-RswWKOVe/pub?output=csv";
+      // Si luego creás un Web App de Apps Script para modificar/recuperar contraseñas,
+      // poné la URL acá. Si está vacío, se usa el modo "mailto" al admin.
+      window.PASSWORD_API_URL = "https://script.google.com/macros/s/AKfycbx7_eYheJlTi3R8m45AyD2qwMXg2GwXMyRfoKNOiYenqYwGbOhzYg9pj0zV8oKBCsS2/exec";
+      // Email del admin para pedidos de recuperación (usado en modo mailto)
+      window.SUPPORT_EMAIL = "docentxsbrown@gmail.com";
+    </script>
+
+    <!-- Tu app -->
+    <script src="app.js"></script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      }
+    </script>
+
+    <footer class="p-6 md:p-8 text-sm text-slate-700">
+      <div class="max-w-3xl mx-auto space-y-3">
+        <h3 class="text-base md:text-lg font-semibold" style="color:var(--azul)">¿Cómo instalar en el celular?</h3>
+        <ol class="list-decimal ml-5 space-y-1">
+          <li>En Android/Chrome: Menú ⋮ → <em>Agregar a la pantalla principal</em>.</li>
+          <li>En iOS/Safari: Compartir → <em>Añadir a inicio</em>.</li>
+        </ol>
+        <div class="mt-8 text-center">
+          <a href="https://cafecito.app/docentesbrown" target="_blank" rel="noopener"
+             class="inline-block px-5 py-3 rounded-2xl text-white font-semibold shadow"
+             style="background:var(--salmon)">
+            ☕ Bancanos con un cafecito
+          </a>
+        </div>
+        <!-- Nuevo botón: Exportar / Importar (después del cafecito) -->
+        <div class="mt-4 text-center">
+          <button onclick="window.__openExport()"
+                  class="inline-block px-5 py-3 rounded-2xl text-white font-semibold shadow"
+                  style="background:var(--azul)">
+            📂 Exportar / Importar
+          </button>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
