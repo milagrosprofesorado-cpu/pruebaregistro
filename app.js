@@ -14,12 +14,23 @@ function todayStr(d=new Date()){
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+function avg(arr){
+  if(!arr || !arr.length) return 0;
+  const nums = arr.map(x => Number(x.value)).filter(v => !Number.isNaN(v));
+  if(!nums.length) return 0;
+  const s = nums.reduce((a,b)=>a+b,0);
+  return Math.round((s/nums.length)*10)/10;
+}
 
-// ====== Auth helpers ======
+// Small UI helpers (kept from original app)
+function bg(v){ return { background: v }; }
+function cls(...args){ return args.filter(Boolean).join(' '); }
+
+// ====== Auth helpers & CSV parsing ======
 const SESSION_KEY = 'session_user_v1';
 
 function parseCSV(text){
-  // Simple CSV parser (no quotes, assuming simple CSV like your sheet)
+  // Simple CSV parser (no advanced quoting handling)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   if(lines.length <= 1) return [];
   const header = lines[0].split(',').map(h=>h.trim().toLowerCase());
@@ -49,127 +60,128 @@ async function fetchUsers(){
   return parseCSV(text);
 }
 
- /* ------------------ INICIO: Firebase Auth helpers + migración CSV ------------------ */
- // Si tu index.html ya carga Firebase SDK, estas funciones funcionarán.
- // Comprueba que `firebase` esté disponible; si no, la app seguirá usando el CSV.
- function firebaseRegister(email, password, displayName) {
-   if(!window.firebase || !firebase.auth) return Promise.reject(new Error('Firebase no está inicializado'));
-   return firebase.auth().createUserWithEmailAndPassword(email, password)
-     .then(cred => {
-       const user = cred.user;
-       if (displayName && user.updateProfile) {
-         return user.updateProfile({ displayName }).then(()=> user);
-       }
-       return user;
-     })
-     .then(user => {
-       try {
-         const db = firebase.firestore();
-         return db.collection('users').doc(user.uid).set({
-           uid: user.uid,
-           email: user.email,
-           displayName: user.displayName || '',
-           createdAt: new Date().toISOString()
-         }, { merge: true }).then(()=> user);
-       } catch(e) {
-         return user;
-       }
-     });
- }
-
- function firebaseLogin(email, password) {
-   if(!window.firebase || !firebase.auth) return Promise.reject(new Error('Firebase no está inicializado'));
-   return firebase.auth().signInWithEmailAndPassword(email, password)
-     .then(cred => cred.user);
- }
-
- function firebaseLogout() {
-   if(!window.firebase || !firebase.auth) return Promise.resolve();
-   return firebase.auth().signOut();
- }
-
- // sincronizar estado de Firebase con session local
- if(window.firebase && firebase.auth){
-   firebase.auth().onAuthStateChanged(user => {
-     if (user) {
-       const sess = { uid: user.uid, usuario: user.email, displayName: user.displayName || '' };
-       try { saveSession(sess); } catch(e){}
-       try { if (window.__onFirebaseLogin) window.__onFirebaseLogin(user); } catch(_) {}
-     } else {
-       try { clearSession(); } catch(e){}
-       try { if (window.__onFirebaseLogout) window.__onFirebaseLogout(); } catch(_) {}
-     }
-   });
- }
-
- // --- Migración "al primer login" desde CSV
- async function tryMigrateFromCSVIfNeeded(emailOrUsername, password) {
-   if(typeof fetchUsers !== 'function') return null;
-   try {
-     const users = await fetchUsers();
-     const found = users.find(u => {
-       const e = (u.correo || u.email || '').toString().toLowerCase();
-       const n = (u.usuario || u.user || u.name || '').toString().toLowerCase();
-       return (e && e === (emailOrUsername||'').toLowerCase()) || (n && n === (emailOrUsername||'').toLowerCase());
-     });
-     if(!found) return null;
-     const csvPassword = (found.contrasena || found.password || '').toString();
-     if(!csvPassword) return null;
-     if(String(csvPassword) !== String(password)) return null;
-     let email = found.correo || found.email;
-     if(!email) email = (found.usuario || found.user || 'usuario') + '@migrado.local';
-     const newUser = await firebaseRegister(email, password, found.usuario || found.name || '');
-     return newUser;
-   } catch(e){
-     console.error('Error migrando desde CSV:', e);
-     return null;
-   }
- }
-
- async function loginWithFirebaseOrCsv(emailOrUsername, password) {
-   // intenta Firebase; si falla por user-not-found, intenta migrar desde CSV y reintentar
-   if(window.firebase && firebase.auth){
-     try {
-       return await firebaseLogin(emailOrUsername, password);
-     } catch(e){
-       const code = e && e.code ? e.code : '';
-       if(code === 'auth/user-not-found' || code === 'auth/invalid-email' || code === 'auth/wrong-password' || code === 'auth/invalid-email'){
-         // intentar migración
-         try {
-           const migrated = await tryMigrateFromCSVIfNeeded(emailOrUsername, password);
-           if(migrated){
-             const email = migrated.email || (emailOrUsername + '@migrado.local');
-             return await firebaseLogin(email, password);
-           }
-         } catch(err){
-           // fallthrough
-         }
-       }
-       throw e;
-     }
-   } else {
-     // Si no hay Firebase, fallará y que la app use el CSV clásico (fetchUsers).
-     throw new Error('Firebase no disponible');
-   }
- }
-
- async function handleLogout(){
-   try { await firebaseLogout(); } catch(e){ console.warn('Logout firebase:', e); }
-   try { clearSession(); } catch(e){}
- }
- /* ------------------ FIN: Firebase Auth helpers + migración CSV ------------------ */
-
 function loadSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || null; } catch { return null; } }
 function saveSession(sess){ localStorage.setItem(SESSION_KEY, JSON.stringify(sess||null)); }
 function clearSession(){ localStorage.removeItem(SESSION_KEY); }
 
+// If you want administrators to receive messages for fallback recovery
 function AdminMailLink(subject, body){
   const mail = (window.SUPPORT_EMAIL || 'admin@ejemplo.com').trim();
   const link = `mailto:${mail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.location.href = link;
 }
 
-// ====== Auth UI ======
+/* ------------------ INICIO: Firebase Auth helpers + migración CSV ------------------ */
+// Estas funciones utilizan la instalación de Firebase que ya está en index.html.
+// Si por alguna razón Firebase no está disponible, la app seguirá usando el CSV como fallback.
+
+function firebaseRegister(email, password, displayName) {
+  if(!window.firebase || !firebase.auth) return Promise.reject(new Error('Firebase no está inicializado'));
+  return firebase.auth().createUserWithEmailAndPassword(email, password)
+    .then(cred => {
+      const user = cred.user;
+      if (displayName && user.updateProfile) {
+        return user.updateProfile({ displayName }).then(()=> user);
+      }
+      return user;
+    })
+    .then(user => {
+      try {
+        const db = firebase.firestore();
+        return db.collection('users').doc(user.uid).set({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || '',
+          createdAt: new Date().toISOString()
+        }, { merge: true }).then(()=> user);
+      } catch(e) {
+        return user;
+      }
+    });
+}
+
+function firebaseLogin(email, password) {
+  if(!window.firebase || !firebase.auth) return Promise.reject(new Error('Firebase no está inicializado'));
+  return firebase.auth().signInWithEmailAndPassword(email, password)
+    .then(cred => cred.user);
+}
+
+function firebaseLogout() {
+  if(!window.firebase || !firebase.auth) return Promise.resolve();
+  return firebase.auth().signOut();
+}
+
+// sincronizar estado de Firebase con session local
+if(window.firebase && firebase.auth){
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) {
+      const sess = { uid: user.uid, usuario: user.email, displayName: user.displayName || '' };
+      try { saveSession(sess); } catch(e){}
+      try { if (window.__onFirebaseLogin) window.__onFirebaseLogin(user); } catch(_) {}
+    } else {
+      try { clearSession(); } catch(e){}
+      try { if (window.__onFirebaseLogout) window.__onFirebaseLogout(); } catch(_) {}
+    }
+  });
+}
+
+// Migración al primer login desde CSV: si un usuario existe en la hoja (usuario o correo) y la contraseña coincide,
+// se crea el usuario en Firebase con la misma contraseña y displayName y luego se loguea.
+async function tryMigrateFromCSVIfNeeded(emailOrUsername, password) {
+  if(typeof fetchUsers !== 'function') return null;
+  try {
+    const users = await fetchUsers();
+    const found = users.find(u => {
+      const e = (u.correo || u.email || '').toString().toLowerCase();
+      const n = (u.usuario || u.user || u.name || '').toString().toLowerCase();
+      return (e && e === (emailOrUsername||'').toLowerCase()) || (n && n === (emailOrUsername||'').toLowerCase());
+    });
+    if(!found) return null;
+    const csvPassword = (found.contrasena || found.password || '').toString();
+    if(!csvPassword) return null;
+    if(String(csvPassword) !== String(password)) return null;
+    let email = found.correo || found.email;
+    if(!email) email = (found.usuario || found.user || 'usuario') + '@migrado.local';
+    const newUser = await firebaseRegister(email, password, found.usuario || found.name || '');
+    return newUser;
+  } catch(e){
+    console.error('Error migrando desde CSV:', e);
+    return null;
+  }
+}
+
+// Función que intenta login con Firebase y, si needed, migración desde CSV
+async function loginWithFirebaseOrCsv(emailOrUsername, password) {
+  if(window.firebase && firebase.auth){
+    try {
+      return await firebaseLogin(emailOrUsername, password);
+    } catch(e){
+      const code = e && e.code ? e.code : '';
+      if(code === 'auth/user-not-found' || code === 'auth/invalid-email' || code === 'auth/wrong-password' || code === 'auth/invalid-email'){
+        try {
+          const migrated = await tryMigrateFromCSVIfNeeded(emailOrUsername, password);
+          if(migrated){
+            const email = migrated.email || (emailOrUsername + '@migrado.local');
+            return await firebaseLogin(email, password);
+          }
+        } catch(err){
+          // continue to throw original
+        }
+      }
+      throw e;
+    }
+  } else {
+    throw new Error('Firebase no disponible');
+  }
+}
+
+async function handleLogout(){
+  try { await firebaseLogout(); } catch(e){ console.warn('Logout firebase:', e); }
+  try { clearSession(); } catch(e){}
+}
+/* ------------------ FIN: Firebase Auth helpers + migración CSV ------------------ */
+
+// ====== Login UI (React-style, compatible con tu app que usa React.createElement 'e') ======
 function LoginScreen({ onLogin }){
   const [usuario, setUsuario] = useState('');
   const [password, setPassword] = useState('');
@@ -183,15 +195,13 @@ function LoginScreen({ onLogin }){
     setError(''); setLoading(true);
     try {
       if(mode === 'login'){
-        // intentar login con Firebase; si no está Firebase, se intentará con CSV aquí abajo
         try {
           const user = await loginWithFirebaseOrCsv(usuario, password);
           saveSession({ usuario: user.email || usuario, uid: user.uid, displayName: user.displayName || '' });
           onLogin && onLogin();
         } catch(e){
-          // si firebase no está, o si el mensaje indica Firebase no disponible, intentamos CSV local
+          // si firebase no está o usuario no existe en Firebase, probamos con CSV local
           if(String(e.message||'').toLowerCase().includes('firebase') || String(e.code||'') === 'auth/user-not-found') {
-            // intentar con CSV (si existe)
             try {
               const users = await fetchUsers();
               const found = users.find(u => (u.usuario||'').toLowerCase() === (usuario||'').toLowerCase() || (u.correo||'').toLowerCase() === (usuario||'').toLowerCase());
@@ -207,7 +217,6 @@ function LoginScreen({ onLogin }){
           }
         }
       } else {
-        // registro: crear en Firebase si está disponible, si no, mostrar error
         if(!displayName){ setError('Ingresá tu nombre completo.'); setLoading(false); return; }
         if(window.firebase && firebase.auth){
           try {
@@ -231,7 +240,6 @@ function LoginScreen({ onLogin }){
   function forgotPassword(){
     const api = (window.PASSWORD_API_URL || '').trim();
     if(api){
-      // si hay un API propio, mantener el comportamiento antiguo
       const usuarioLocal = usuario;
       if(!usuarioLocal){ alert('Ingresá tu usuario o correo primero'); return; }
       fetch(api, {
@@ -242,7 +250,6 @@ function LoginScreen({ onLogin }){
       .catch(()=> alert('No se pudo contactar al servidor.'));
       return;
     }
-    // Si Firebase está disponible, usar su sistema de reset
     if(window.firebase && firebase.auth){
       const email = prompt('Ingresá tu correo para recibir un link de recuperación:') || '';
       if(!email) return;
@@ -283,3 +290,5 @@ function LoginScreen({ onLogin }){
     )
   );
 }
+
+
